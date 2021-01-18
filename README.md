@@ -10,7 +10,7 @@
 
 ## 二、Introduction
 
-translate lucene3.0.0 with golang 
+full-text search engine, translate lucene1.0.1 with golang.
 
 
 
