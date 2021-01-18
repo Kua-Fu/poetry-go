@@ -6,7 +6,7 @@
 
 >[golang project layout](https://github.com/golang-standards/project-layout)
 
->[lucene3.0.0 source code](https://github.com/apache/lucene-solr/tree/releases/lucene/3.0.0)
+>[lucene1.0.1 source code](https://github.com/apache/lucene-solr/tree/releases/lucene/1.0.1)
 
 ## 二、Introduction
 
