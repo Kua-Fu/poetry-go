@@ -1,12 +1,8 @@
-package index
+package core
 
 import (
 	"math"
-	"os"
 	"strconv"
-
-	"github.com/Kua-Fu/gsearch/core/analysis"
-	"github.com/Kua-Fu/gsearch/core/document"
 )
 
 /*
@@ -23,10 +19,10 @@ then the optimize method should be called before the index is closed.
 
 // Writer index writer
 type Writer struct {
-	directory    *os.File          // where this index resides
-	analyzer     analysis.Analyzer // how to analyze text
-	segInfos     SegmentInfos      // the segments
-	ramDirectory *os.File          // for temp segs
+	directory    File         // where this index resides
+	analyzer     Analyzer     // how to analyze text
+	segInfos     SegmentInfos // the segments
+	ramDirectory File         // for temp segs
 }
 
 var (
@@ -51,23 +47,31 @@ var (
 	infoStream string
 )
 
-// AddDocument Adds a document to this index
-func (w *Writer) AddDocument(doc document.Document) error {
-	dw := DocumentWriter{
-		directory:      w.ramDirectory,
-		analyzer:       w.analyzer,
-		maxFieldLength: maxFieldLength,
-	}
-	segmentName := w.newSegmentName()
-	dw.AddDocument(segmentName, doc)
+// Init init writer
+func (w *Writer) Init(dir File, analyzer Analyzer) error {
+	w.directory = dir
+	w.analyzer = analyzer
+	return nil
 
-	segmentInfo := SegmentInfo{
-		name:     segmentName,
-		docCount: 1,
-		dir:      w.ramDirectory,
-	}
-	w.segInfos.addElement(segmentInfo)
-	w.maybeMergeSegments()
+}
+
+// AddDocument Adds a document to this index
+func (w *Writer) AddDocument(doc Document) error {
+	// dw := DocumentWriter{
+	// 	DirPath:        w.ramDirectory,
+	// 	Analyzer:       w.analyzer,
+	// 	MaxFieldLength: maxFieldLength,
+	// }
+	// segmentName := w.newSegmentName()
+	// dw.AddDocument(segmentName, doc)
+
+	// segmentInfo := SegmentInfo{
+	// 	name:     segmentName,
+	// 	docCount: 1,
+	// 	dir:      w.ramDirectory,
+	// }
+	// w.segInfos.addElement(segmentInfo)
+	// w.maybeMergeSegments()
 	return nil
 }
 
@@ -146,5 +150,5 @@ func (s *SegmentInfos) addElement(segInfo SegmentInfo) error {
 type SegmentInfo struct {
 	name     string
 	docCount int64
-	dir      *os.File
+	dir      File
 }

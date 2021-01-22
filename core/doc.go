@@ -1,4 +1,4 @@
-package document
+package core
 
 // Document document
 type Document struct {

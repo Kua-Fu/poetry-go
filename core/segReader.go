@@ -1,10 +1,8 @@
-package index
-
-import "os"
+package core
 
 // SegmentReader segment reader
 type SegmentReader struct {
-	directory *os.File
+	directory File
 	segment   string
 }
 

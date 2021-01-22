@@ -3,43 +3,32 @@ package test
 import (
 	"testing"
 
-	"github.com/Kua-Fu/gsearch/core/analysis"
-	"github.com/Kua-Fu/gsearch/core/document"
-	"github.com/Kua-Fu/gsearch/core/index"
-	"github.com/Kua-Fu/gsearch/core/store"
+	"github.com/Kua-Fu/gsearch/core"
 )
 
-func TestIndex(t *testing.T) {
+func TestDoc(t *testing.T) {
+	var (
+		err      error
+		fPtr     *core.File
+		indexDir string
+	)
 
-	//
-	field1 := document.Field{
-		Name:  "f1",
-		Value: "11",
-		Index: true,
-		Store: true,
-	}
+	indexDir = "/Users/yz/work/github/gsearch/test/index/"
 
-	// // 1) gen document
-	fields := []document.Field{field1}
-	document := document.Document{
-		Boost:  1.0,
-		Fields: fields,
-	}
-
-	analyzer1 := analysis.Analyzer{}
-
-	// // 1) gen writer
-	indexDir := "/Users/yz/work/github/gsearch/indexDir"
-	dir, err := store.FSDirectory(indexDir)
+	fPtr, err = core.CreateFile(indexDir, true, true)
 	if err != nil {
-		t.Errorf(err.Error())
-	}
-	writer := index.Writer{
-		Directory: dir,
-		Analyzer:  analyzer1,
+		t.Error(err)
 	}
 
-	// // 3) add doc
-	writer.AddDocument(document)
+	analyzer := new(core.Analyzer)
+	writer := new(core.DocumentWriter)
+	writer.Init(fPtr.FilePath, *analyzer, int64(1000))
+
+	doc := new(core.Document)
+	f1, _ := core.Keyword("path", "/etc/test.txt")
+	doc.Add(f1)
+
+	segment := "s1"
+	writer.AddDocument(segment, *doc)
 
 }
