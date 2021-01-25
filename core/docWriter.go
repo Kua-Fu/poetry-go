@@ -1,6 +1,9 @@
 package core
 
-import "os"
+import (
+	"os"
+	"strconv"
+)
 
 // DocumentWriter document writer
 type DocumentWriter struct {
@@ -10,6 +13,7 @@ type DocumentWriter struct {
 	MaxFieldLength int64
 	DirPath        string
 	PostingTable   map[Term]Posting
+	FieldLengths   []int64
 }
 
 // Init init document writer
@@ -26,11 +30,50 @@ func (dw *DocumentWriter) AddDocument(segment string, doc Document) (bool, error
 	// (1) add field names
 	dw.addFieldNames(segment, doc)
 
-	// write field values
-	fieldsWriter := FieldsWriter{}
-	fieldsWriter.Init(dw.DirPath, segment, dw.FieldInfos)
-	fieldsWriter.AddDocument(doc)
+	// (2) add field values
+	dw.addFieldValues(segment, doc)
 
+	// (3) add field positions, (frequency and position)
+	dw.addFieldPostings(segment, doc)
+
+	// (4) add norms
+	dw.addFieldNorms(segment, doc)
+
+	return true, nil
+}
+
+// add field names
+func (dw *DocumentWriter) addFieldNames(segment string, doc Document) error {
+	fieldInfos := FieldInfos{
+		ByNumber: []FieldInfo{},
+		ByName:   map[string]FieldInfo{},
+	}
+	fieldInfos.Init()
+	fieldInfos.AddDoc(doc)
+	dw.FieldInfos = fieldInfos
+	filePath := dw.DirPath + segment + FileSuffix["fieldName"]
+	fieldInfos.Write(filePath)
+	return nil
+}
+
+// add field values
+func (dw *DocumentWriter) addFieldValues(segment string, doc Document) error {
+	var err error
+	fw := FieldsWriter{}
+	fw.Init(dw.DirPath, segment, dw.FieldInfos)
+	err = fw.AddDocument(doc)
+	if err != nil {
+		return err
+	}
+	err = fw.Close() // flush
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+// add field postings
+func (dw *DocumentWriter) addFieldPostings(segment string, doc Document) error {
 	// invert doc into postingTable
 	dw.PostingTable = map[Term]Posting{}
 	dw.invertDocument(doc)
@@ -40,34 +83,18 @@ func (dw *DocumentWriter) AddDocument(segment string, doc Document) (bool, error
 
 	// write postings
 	dw.writePostings(postings, segment)
-
-	// write norms of indexed fields
-	dw.writeNorms(segment, doc)
-
-	return true, nil
-}
-
-// addFieldName add field names
-func (dw *DocumentWriter) addFieldNames(segment string, doc Document) error {
-	fieldInfos := FieldInfos{
-		ByNumber: []FieldInfo{},
-		ByName:   map[string]FieldInfo{},
-	}
-	fieldInfos.Add(doc)
-	dw.FieldInfos = fieldInfos
-	filePath := dw.DirPath + segment + FileSuffix["fieldName"]
-	fieldInfos.Write(filePath)
 	return nil
 }
 
 func (dw *DocumentWriter) invertDocument(doc Document) error {
+
 	lenFields := len(dw.FieldInfos.ByNumber)
-	fieldLengths := make([]int64, lenFields)
+	dw.FieldLengths = make([]int64, lenFields)
 
 	for _, field := range doc.Fields {
 		fieldName := field.Name
 		fieldNumber, _ := dw.FieldInfos.GetNumber(fieldName)
-		position := fieldLengths[fieldNumber] // position in field
+		position := dw.FieldLengths[fieldNumber] // position in field
 		fieldValue := field.Value
 		if field.IsIndexed {
 			if !field.IsTokenized { // un-tokenized field
@@ -77,7 +104,7 @@ func (dw *DocumentWriter) invertDocument(doc Document) error {
 			}
 		}
 		position = position + 1
-		fieldLengths[fieldNumber] = position
+		dw.FieldLengths[fieldNumber] = position
 	}
 	return nil
 }
@@ -106,39 +133,88 @@ func (dw *DocumentWriter) sortPostingTable() ([]Posting, error) {
 }
 
 func (dw *DocumentWriter) writePostings(postings []Posting, segment string) error {
+	var (
+		filePath string
+		err      error
+	)
 
-	// write frq
-	dw.writeFrq(postings, segment)
-
-	// write prx
-	dw.writePrx(postings, segment)
-
-	// write tis
-	dw.writeTis(postings, segment)
-
-	return nil
-}
-
-// write frq
-func (dw *DocumentWriter) writeFrq(postings []Posting, segment string) error {
-	filePath := dw.DirPath + segment + FileSuffix["termFrequencies"]
-	fPtr, err := os.Create(filePath)
+	filePath = dw.DirPath + segment + FileSuffix["termFrequencies"]
+	frqPtr, err := CreateFile(filePath, false, false)
 	if err != nil {
 		return err
 	}
 
+	filePath = dw.DirPath + segment + FileSuffix["termPositions"]
+	prxPtr, err := CreateFile(filePath, false, false)
+	if err != nil {
+		return err
+	}
+
+	tw := new(TermsWriter)
+	tw.Init(dw.DirPath, segment, dw.FieldInfos)
+	ti := TermInfo{}
+
 	for _, posting := range postings {
-		f := posting.Freq
-		if f == 1 {
-			fPtr.Write([]byte{1})
-		} else {
-			fPtr.Write([]byte{0})
-			b, _ := Int64ToByte(f)
-			fPtr.Write(b)
+		// init terminfo
+		frqSize, err := frqPtr.GetSize()
+		if err != nil {
+			return err
 		}
+		prxSize, err := prxPtr.GetSize()
+		if err != nil {
+			return err
+		}
+
+		// add an entry to the dictionary with pointers to prox and freq files
+		ti.Init(1, frqSize, prxSize)
+		err = tw.AddTerm(posting.Term, ti)
+		if err != nil {
+			return err
+		}
+
+		// add an entry to the freq file
+		f := posting.Freq
+		if f == 1 { // optimize freq=1
+			frqPtr.WriteByte(1) // set low bit of doc num.
+		} else {
+			frqPtr.WriteByte(0)     // the document number
+			frqPtr.WriteVarInt64(f) // frequency in doc
+		}
+
+		var lastPosition int64 = 0 // write positions
+		positions := posting.Positions
+		i := int64(0)
+		for i < posting.Freq {
+			position := positions[i]
+			diff := position - lastPosition
+			prxPtr.WriteVarInt64(diff)
+			lastPosition = position
+			i = i + 1
+		}
+	}
+
+	if frqPtr != nil {
+		frqPtr.Flush()
+	}
+	if prxPtr != nil {
+		prxPtr.Flush()
+	}
+
+	if tw != nil {
+		tw.Close()
 	}
 	return nil
 }
+
+// write frq
+// func (dw *DocumentWriter) writeFrq(postings []Posting, segment string) error {
+// 	filePath := dw.DirPath + segment + FileSuffix["termFrequencies"]
+// 	fPtr, err := CreateFile(filePath, false, false)
+// 	if err != nil {
+// 		return err
+// 	}
+// 	return nil
+// }
 
 // write prx
 func (dw *DocumentWriter) writePrx(postings []Posting, segment string) error {
@@ -170,7 +246,24 @@ func (dw *DocumentWriter) writeTis(postings []Posting, segment string) error {
 	return nil
 }
 
-// write Norms
-func (dw *DocumentWriter) writeNorms(segment string, doc Document) error {
+// add field norms
+func (dw *DocumentWriter) addFieldNorms(segment string, doc Document) error {
+	for _, field := range doc.Fields {
+		if field.IsIndexed {
+			fieldNumber, err := dw.FieldInfos.GetNumber(field.Name)
+			if err != nil {
+				return err
+			}
+			filePath := dw.DirPath + segment + FileSuffix["norms"] + strconv.FormatInt(fieldNumber, 10)
+			nPtr, err := CreateFile(filePath, false, false)
+			if err != nil {
+				return err
+			}
+
+			n := SimilarityNorm(dw.FieldLengths[fieldNumber])
+			nPtr.WriteVarInt64(n)
+			nPtr.Flush()
+		}
+	}
 	return nil
 }

@@ -2,6 +2,7 @@ package core
 
 import (
 	"fmt"
+	"strings"
 )
 
 /*
@@ -53,6 +54,13 @@ type Term struct {
 	Text  string
 }
 
+// TermInfo term info
+type TermInfo struct {
+	DocFrq int64
+	FrqPtr int64
+	PrxPtr int64
+}
+
 // Posting posting
 // info about a Term in a doc
 type Posting struct {
@@ -73,8 +81,29 @@ func Keyword(name string, value string) (Field, error) {
 	return f, nil
 }
 
-// Add add doc
-func (f *FieldInfos) Add(doc Document) error {
+// Init init field infos
+func (f *FieldInfos) Init() error {
+	f.AddField("", false)
+	return nil
+}
+
+// AddField add field
+func (f *FieldInfos) AddField(name string, isIndex bool) error {
+	_, found := f.ByName[name]
+	if !found {
+		fieldInfo := FieldInfo{
+			Name:      name,
+			IsIndexed: isIndex,
+			Number:    int64(len(f.ByNumber)),
+		}
+		f.ByNumber = append(f.ByNumber, fieldInfo)
+		f.ByName[name] = fieldInfo
+	}
+	return nil
+}
+
+// AddDoc add doc
+func (f *FieldInfos) AddDoc(doc Document) error {
 	fields := doc.Fields
 	for _, field := range fields {
 		fieldName := field.Name
@@ -103,7 +132,7 @@ func (f *FieldInfos) Write(filePath string) error {
 	}
 
 	// (1) write fields size
-	err = fPtr.WriteInt64(int64(len(f.ByNumber)))
+	err = fPtr.WriteVarInt64(int64(len(f.ByNumber)))
 	if err != nil {
 		return err
 	}
@@ -131,4 +160,21 @@ func (f *FieldInfos) GetNumber(fieldName string) (int64, error) {
 		return fi.Number, nil
 	}
 	return int64(-1), fmt.Errorf("not found field")
+}
+
+// Init termInfo init
+func (ti *TermInfo) Init(docFrq, fp, pp int64) error {
+	ti.DocFrq = docFrq
+	ti.FrqPtr = fp
+	ti.PrxPtr = pp
+	return nil
+}
+
+// Compare term compare
+func (t *Term) Compare(d Term) int {
+	fc := strings.Compare(t.Field, d.Field)
+	if fc == 0 {
+		return strings.Compare(t.Text, d.Text)
+	}
+	return fc
 }

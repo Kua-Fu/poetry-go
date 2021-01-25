@@ -40,6 +40,29 @@ func CreateFile(filePath string, isDir bool, isCreate bool) (*File, error) {
 	return &f, nil
 }
 
+// Flush flush file to disk
+func (f *File) Flush() error {
+	err := f.File.Sync()
+	if err != nil {
+		return err
+	}
+	return err
+}
+
+// GetSize get size
+func (f *File) GetSize() (int64, error) {
+	var (
+		size int64
+		err  error
+	)
+	fileInfo, err := os.Stat(f.FilePath)
+	if err != nil {
+		return size, err
+	}
+	size = fileInfo.Size()
+	return size, nil
+}
+
 // WriteInt64 write int64 to file
 func (f *File) WriteInt64(n int64) error {
 	b, err := Int64ToByte(n)
@@ -53,11 +76,28 @@ func (f *File) WriteInt64(n int64) error {
 	return nil
 }
 
+// WriteVarInt64 write var int64
+func (f *File) WriteVarInt64(n int64) error {
+	for (n & ^0x7F) != 0 {
+		s1 := byte((n & 0x7f) | 0x80)
+		f.WriteByte(s1)
+		n >>= 7
+	}
+	s2 := byte(n)
+	f.WriteByte(s2)
+	return nil
+}
+
 // WriteString write string
 func (f *File) WriteString(s string) error {
 	var (
 		err error
 	)
+	l := int64(len(s))
+	err = f.WriteVarInt64(l)
+	if err != nil {
+		return err
+	}
 	_, err = f.File.WriteString(s)
 	if err != nil {
 		return err
@@ -71,6 +111,15 @@ func (f *File) WriteByte(b byte) error {
 		err error
 	)
 	_, err = f.File.Write([]byte{b})
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+// SeekFrom seek file
+func (f *File) SeekFrom(n int64) error {
+	_, err := f.File.Seek(n, 0)
 	if err != nil {
 		return err
 	}
