@@ -44,8 +44,8 @@ func StringDifference(s, d string) int64 {
 }
 
 //SimilarityNorm similarity norm
-func SimilarityNorm(n int64) int64 {
+func SimilarityNorm(n int64) byte {
 	f := float64(n)
 	d := 255.0 / math.Sqrt(f)
-	return int64(math.Ceil(d))
+	return byte(math.Ceil(d))
 }

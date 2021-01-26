@@ -2,6 +2,7 @@ package core
 
 import (
 	"os"
+	"path"
 	"strconv"
 )
 
@@ -51,7 +52,7 @@ func (dw *DocumentWriter) addFieldNames(segment string, doc Document) error {
 	fieldInfos.Init()
 	fieldInfos.AddDoc(doc)
 	dw.FieldInfos = fieldInfos
-	filePath := dw.DirPath + segment + FileSuffix["fieldName"]
+	filePath := path.Join(dw.DirPath, segment+FileSuffix["fieldName"])
 	fieldInfos.Write(filePath)
 	return nil
 }
@@ -129,7 +130,7 @@ func (dw *DocumentWriter) sortPostingTable() ([]Posting, error) {
 	for _, v := range dw.PostingTable {
 		postings = append(postings, v)
 	}
-	return nil, nil
+	return postings, nil
 }
 
 func (dw *DocumentWriter) writePostings(postings []Posting, segment string) error {
@@ -138,13 +139,13 @@ func (dw *DocumentWriter) writePostings(postings []Posting, segment string) erro
 		err      error
 	)
 
-	filePath = dw.DirPath + segment + FileSuffix["termFrequencies"]
+	filePath = path.Join(dw.DirPath, segment+FileSuffix["termFrequencies"])
 	frqPtr, err := CreateFile(filePath, false, false)
 	if err != nil {
 		return err
 	}
 
-	filePath = dw.DirPath + segment + FileSuffix["termPositions"]
+	filePath = path.Join(dw.DirPath, segment+FileSuffix["termPositions"])
 	prxPtr, err := CreateFile(filePath, false, false)
 	if err != nil {
 		return err
@@ -175,10 +176,10 @@ func (dw *DocumentWriter) writePostings(postings []Posting, segment string) erro
 		// add an entry to the freq file
 		f := posting.Freq
 		if f == 1 { // optimize freq=1
-			frqPtr.WriteByte(1) // set low bit of doc num.
+			frqPtr.WriteVarInt(1) // set low bit of doc num.
 		} else {
-			frqPtr.WriteByte(0)     // the document number
-			frqPtr.WriteVarInt64(f) // frequency in doc
+			frqPtr.WriteVarInt(0)      // the document number
+			frqPtr.WriteVarInt(int(f)) // frequency in doc
 		}
 
 		var lastPosition int64 = 0 // write positions
@@ -219,7 +220,7 @@ func (dw *DocumentWriter) writePostings(postings []Posting, segment string) erro
 // write prx
 func (dw *DocumentWriter) writePrx(postings []Posting, segment string) error {
 
-	filePath := dw.DirPath + segment + FileSuffix["termPositions"]
+	filePath := path.Join(dw.DirPath, segment+FileSuffix["termPositions"])
 	fPtr, err := os.Create(filePath)
 	if err != nil {
 		return err
@@ -254,14 +255,14 @@ func (dw *DocumentWriter) addFieldNorms(segment string, doc Document) error {
 			if err != nil {
 				return err
 			}
-			filePath := dw.DirPath + segment + FileSuffix["norms"] + strconv.FormatInt(fieldNumber, 10)
+			filePath := path.Join(dw.DirPath, segment+FileSuffix["norms"]+strconv.FormatInt(fieldNumber, 10))
 			nPtr, err := CreateFile(filePath, false, false)
 			if err != nil {
 				return err
 			}
 
 			n := SimilarityNorm(dw.FieldLengths[fieldNumber])
-			nPtr.WriteVarInt64(n)
+			nPtr.WriteByte(n)
 			nPtr.Flush()
 		}
 	}
