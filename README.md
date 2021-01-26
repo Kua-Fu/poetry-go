@@ -1,6 +1,6 @@
 # gosearch
 
-![image info](https://github.com/Kua-Fu/gsearch/blob/main/docs/image/poetry.png)
+![image info](https://github.com/Kua-Fu/gsearch/blob/dev/docs/image/poetry.png)
 
 ## 一、References
 

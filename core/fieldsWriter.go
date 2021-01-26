@@ -2,6 +2,7 @@ package core
 
 import (
 	"fmt"
+	"path"
 )
 
 // FieldsWriter fields writer
@@ -31,7 +32,7 @@ var (
 func (fw *FieldsWriter) Init(dirPath string, segment string, fn FieldInfos) error {
 	fw.FieldInfos = fn
 
-	filePath := dirPath + segment + FileSuffix["fieldData"]
+	filePath := path.Join(dirPath, segment+FileSuffix["fieldData"])
 
 	fieldsData, err := CreateFile(filePath, false, false)
 	if err != nil {
@@ -39,7 +40,7 @@ func (fw *FieldsWriter) Init(dirPath string, segment string, fn FieldInfos) erro
 	}
 	fw.FieldsData = fieldsData
 
-	filePath = dirPath + segment + FileSuffix["fieldIndex"]
+	filePath = path.Join(dirPath, segment+FileSuffix["fieldIndex"])
 	fieldsIndex, err := CreateFile(filePath, false, false)
 	if err != nil {
 		return err
@@ -59,7 +60,7 @@ func (fw *FieldsWriter) AddDocument(doc Document) error {
 	if err != nil {
 		return err
 	}
-	err = fw.FieldsIndex.WriteVarInt64(size)
+	err = fw.FieldsIndex.WriteInt64(size)
 	if err != nil {
 		return err
 	}
@@ -124,7 +125,7 @@ func (tw *TermsWriter) Init(dirPath, segment string, fieldInfos FieldInfos) erro
 	}
 
 	tw.Output = fPtr
-	fPtr.WriteVarInt64(0)
+	fPtr.WriteInt(0)
 	tw.Output = fPtr
 
 	// other
@@ -134,7 +135,7 @@ func (tw *TermsWriter) Init(dirPath, segment string, fieldInfos FieldInfos) erro
 	if err != nil {
 		return err
 	}
-	fPtr.WriteVarInt64(0)
+	fPtr.WriteInt(0)
 
 	other := &TermsWriter{
 		FieldInfos: fieldInfos,
@@ -156,10 +157,10 @@ func (tw *TermsWriter) AddTerm(term Term, ti TermInfo) error {
 	if tw.IsIndex == false && term.Compare(tw.LastTerm) <= 0 {
 		return fmt.Errorf("term out of order")
 	}
-	if ti.FrqPtr <= tw.LastTi.FrqPtr {
+	if ti.FrqPtr < tw.LastTi.FrqPtr {
 		return fmt.Errorf("freqPointer out of order")
 	}
-	if ti.PrxPtr <= tw.LastTi.PrxPtr {
+	if ti.PrxPtr < tw.LastTi.PrxPtr {
 		return fmt.Errorf("proxPointer out of order")
 	}
 
@@ -168,7 +169,7 @@ func (tw *TermsWriter) AddTerm(term Term, ti TermInfo) error {
 	}
 
 	tw.WriteTerm(term)
-	tw.Output.WriteVarInt64(ti.DocFrq)
+	tw.Output.WriteVarInt(int(ti.DocFrq))
 	tw.Output.WriteVarInt64(ti.FrqPtr - tw.LastTi.FrqPtr)
 	tw.Output.WriteVarInt64(ti.PrxPtr - tw.LastTi.PrxPtr)
 
@@ -201,15 +202,15 @@ func (tw *TermsWriter) WriteTerm(term Term) error {
 	start := StringDifference(tw.LastTerm.Text, term.Text)
 	l := int64(len(term.Text)) - start
 
-	tw.Output.WriteVarInt64(start)           // write shared prefix length
-	tw.Output.WriteVarInt64(l)               // write delta length
-	tw.Output.WriteString(term.Text[start:]) // write delta chars
+	tw.Output.WriteVarInt(int(start))       // write shared prefix length
+	tw.Output.WriteVarInt(int(l))           // write delta length
+	tw.Output.WriteChars(term.Text[start:]) // write delta chars
 
 	n, err := tw.FieldInfos.GetNumber(term.Field)
 	if err != nil {
 		return err
 	}
-	tw.Output.WriteVarInt64(n)
+	tw.Output.WriteVarInt(int(n))
 	return nil
 }
 
@@ -217,7 +218,7 @@ func (tw *TermsWriter) WriteTerm(term Term) error {
 func (tw *TermsWriter) Close() error {
 
 	tw.Output.SeekFrom(0) // write size at start
-	tw.Output.WriteVarInt64(tw.Size)
+	tw.Output.WriteInt(int(tw.Size))
 
 	tw.Output.Flush()
 

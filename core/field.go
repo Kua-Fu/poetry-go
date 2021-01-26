@@ -102,6 +102,14 @@ func (f *FieldInfos) AddField(name string, isIndex bool) error {
 	return nil
 }
 
+// AddFields add fields
+func (f *FieldInfos) AddFields(fs FieldInfos) error {
+	for _, fi := range fs.ByNumber {
+		f.AddField(fi.Name, fi.IsIndexed)
+	}
+	return nil
+}
+
 // AddDoc add doc
 func (f *FieldInfos) AddDoc(doc Document) error {
 	fields := doc.Fields
