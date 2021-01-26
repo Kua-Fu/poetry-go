@@ -1,6 +1,6 @@
 ![image info](docs/image/poetryLogo.png)
 
-[![license](https://img.shields.io/github/license/Kua-Fu/gsearch)](https://github.com/pingcap/tidb/blob/master/LICENSE)
+[![license](https://img.shields.io/github/license/Kua-Fu/gsearch)](https://github.com/Kua-Fu/gsearch/blob/main/LICENSE)
 
 
 ## 一、References
