@@ -17,6 +17,9 @@ var (
 		"termInfos":       ".tis", // term infos, part of the term dictionary, stores term info
 		"norms":           ".f",   // norms
 	}
+
+	// IndexInterval index interval
+	IndexInterval int64 = 128
 )
 
 // Int64ToByte int64 to []byte

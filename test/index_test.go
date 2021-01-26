@@ -9,23 +9,25 @@ import (
 func TestDoc(t *testing.T) {
 	var (
 		err      error
-		fPtr     *core.File
 		indexDir string
 	)
 
 	indexDir = "/Users/yz/work/github/gsearch/test/index/"
 
-	fPtr, err = core.CreateFile(indexDir, true, true)
-	if err != nil {
-		t.Error(err)
-	}
+	// fPtr, err = core.CreateFile(indexDir, true, true)
+	// if err != nil {
+	// 	t.Error(err)
+	// }
 
 	analyzer := new(core.Analyzer)
 	writer := new(core.DocumentWriter)
-	writer.Init(fPtr.FilePath, *analyzer, int64(1000))
+	writer.Init(indexDir, *analyzer, int64(1000))
 
 	doc := new(core.Document)
-	f1, _ := core.Keyword("path", "/etc/test.txt")
+	f1, err := core.Keyword("path", "/etc/test.txt")
+	if err != nil {
+		t.Errorf("doc index err")
+	}
 	doc.Add(f1)
 
 	segment := "s1"
@@ -49,5 +51,6 @@ func TestIndex(t *testing.T) {
 	doc.Add(f1)
 
 	writer.AddDocument(*doc)
+	writer.Close()
 
 }

@@ -8,20 +8,20 @@ import (
 
 // DocumentWriter document writer
 type DocumentWriter struct {
-	Analyzer Analyzer
+	analyzer Analyzer
 	// Directory      Directory
-	FieldInfos     FieldInfos
-	MaxFieldLength int64
-	DirPath        string
-	PostingTable   map[Term]Posting
-	FieldLengths   []int64
+	fieldInfos     *FieldInfos
+	maxFieldLength int64
+	dirPath        string
+	postingTable   map[Term]Posting
+	fieldLengths   []int64
 }
 
 // Init init document writer
 func (dw *DocumentWriter) Init(dirPath string, analyzer Analyzer, mfl int64) error {
-	dw.DirPath = dirPath
-	dw.Analyzer = analyzer
-	dw.MaxFieldLength = mfl
+	dw.dirPath = dirPath
+	dw.analyzer = analyzer
+	dw.maxFieldLength = mfl
 	return nil
 }
 
@@ -45,15 +45,16 @@ func (dw *DocumentWriter) AddDocument(segment string, doc Document) (bool, error
 
 // add field names
 func (dw *DocumentWriter) addFieldNames(segment string, doc Document) error {
-	fieldInfos := FieldInfos{
-		ByNumber: []FieldInfo{},
-		ByName:   map[string]FieldInfo{},
-	}
-	fieldInfos.Init()
-	fieldInfos.AddDoc(doc)
-	dw.FieldInfos = fieldInfos
-	filePath := path.Join(dw.DirPath, segment+FileSuffix["fieldName"])
-	fieldInfos.Write(filePath)
+
+	fieldsPtr := new(FieldInfos)
+	fieldsPtr.empty()
+	fieldsPtr.init()
+
+	fieldsPtr.addDoc(doc)
+
+	dw.fieldInfos = fieldsPtr
+	filePath := path.Join(dw.dirPath, segment+FileSuffix["fieldName"])
+	fieldsPtr.write(filePath)
 	return nil
 }
 
@@ -61,8 +62,8 @@ func (dw *DocumentWriter) addFieldNames(segment string, doc Document) error {
 func (dw *DocumentWriter) addFieldValues(segment string, doc Document) error {
 	var err error
 	fw := FieldsWriter{}
-	fw.Init(dw.DirPath, segment, dw.FieldInfos)
-	err = fw.AddDocument(doc)
+	fw.Init(dw.dirPath, segment, dw.fieldInfos)
+	err = fw.addDocument(doc)
 	if err != nil {
 		return err
 	}
@@ -76,7 +77,7 @@ func (dw *DocumentWriter) addFieldValues(segment string, doc Document) error {
 // add field postings
 func (dw *DocumentWriter) addFieldPostings(segment string, doc Document) error {
 	// invert doc into postingTable
-	dw.PostingTable = map[Term]Posting{}
+	dw.postingTable = map[Term]Posting{}
 	dw.invertDocument(doc)
 
 	// sort postingTable into an array
@@ -89,23 +90,23 @@ func (dw *DocumentWriter) addFieldPostings(segment string, doc Document) error {
 
 func (dw *DocumentWriter) invertDocument(doc Document) error {
 
-	lenFields := len(dw.FieldInfos.ByNumber)
-	dw.FieldLengths = make([]int64, lenFields)
+	lenFields := len(dw.fieldInfos.byNumber)
+	dw.fieldLengths = make([]int64, lenFields)
 
 	for _, field := range doc.Fields {
-		fieldName := field.Name
-		fieldNumber, _ := dw.FieldInfos.GetNumber(fieldName)
-		position := dw.FieldLengths[fieldNumber] // position in field
-		fieldValue := field.Value
-		if field.IsIndexed {
-			if !field.IsTokenized { // un-tokenized field
+		fieldName := field.name
+		fieldNumber, _ := dw.fieldInfos.getNumber(fieldName)
+		position := dw.fieldLengths[fieldNumber] // position in field
+		fieldValue := field.value
+		if field.isIndexed {
+			if !field.isTokenized { // un-tokenized field
 				dw.addPosition(fieldName, fieldValue, position)
 			} else {
 				// fieldValue := field.Value
 			}
 		}
 		position = position + 1
-		dw.FieldLengths[fieldNumber] = position
+		dw.fieldLengths[fieldNumber] = position
 	}
 	return nil
 }
@@ -113,21 +114,21 @@ func (dw *DocumentWriter) invertDocument(doc Document) error {
 func (dw *DocumentWriter) addPosition(fieldName string, fieldValue string, position int64) error {
 	// word not seen before
 	term := Term{
-		Field: fieldName,
-		Text:  fieldValue,
+		field: fieldName,
+		text:  fieldValue,
 	}
 	posting := Posting{
-		Term:      term,
-		Freq:      1,
-		Positions: []int64{position},
+		term:      term,
+		freq:      1,
+		positions: []int64{position},
 	}
-	dw.PostingTable[term] = posting
+	dw.postingTable[term] = posting
 	return nil
 }
 
 func (dw *DocumentWriter) sortPostingTable() ([]Posting, error) {
 	var postings = []Posting{}
-	for _, v := range dw.PostingTable {
+	for _, v := range dw.postingTable {
 		postings = append(postings, v)
 	}
 	return postings, nil
@@ -139,70 +140,70 @@ func (dw *DocumentWriter) writePostings(postings []Posting, segment string) erro
 		err      error
 	)
 
-	filePath = path.Join(dw.DirPath, segment+FileSuffix["termFrequencies"])
+	filePath = path.Join(dw.dirPath, segment+FileSuffix["termFrequencies"])
 	frqPtr, err := CreateFile(filePath, false, false)
 	if err != nil {
 		return err
 	}
 
-	filePath = path.Join(dw.DirPath, segment+FileSuffix["termPositions"])
+	filePath = path.Join(dw.dirPath, segment+FileSuffix["termPositions"])
 	prxPtr, err := CreateFile(filePath, false, false)
 	if err != nil {
 		return err
 	}
 
 	tw := new(TermsWriter)
-	tw.Init(dw.DirPath, segment, dw.FieldInfos)
+	tw.init(dw.dirPath, segment, dw.fieldInfos)
 	ti := TermInfo{}
 
 	for _, posting := range postings {
 		// init terminfo
-		frqSize, err := frqPtr.GetSize()
+		frqSize, err := frqPtr.getSize()
 		if err != nil {
 			return err
 		}
-		prxSize, err := prxPtr.GetSize()
+		prxSize, err := prxPtr.getSize()
 		if err != nil {
 			return err
 		}
 
 		// add an entry to the dictionary with pointers to prox and freq files
 		ti.Init(1, frqSize, prxSize)
-		err = tw.AddTerm(posting.Term, ti)
+		err = tw.addTerm(posting.term, ti)
 		if err != nil {
 			return err
 		}
 
 		// add an entry to the freq file
-		f := posting.Freq
+		f := posting.freq
 		if f == 1 { // optimize freq=1
-			frqPtr.WriteVarInt(1) // set low bit of doc num.
+			frqPtr.writeVarInt(1) // set low bit of doc num.
 		} else {
-			frqPtr.WriteVarInt(0)      // the document number
-			frqPtr.WriteVarInt(int(f)) // frequency in doc
+			frqPtr.writeVarInt(0)      // the document number
+			frqPtr.writeVarInt(int(f)) // frequency in doc
 		}
 
 		var lastPosition int64 = 0 // write positions
-		positions := posting.Positions
+		positions := posting.positions
 		i := int64(0)
-		for i < posting.Freq {
+		for i < posting.freq {
 			position := positions[i]
 			diff := position - lastPosition
-			prxPtr.WriteVarInt64(diff)
+			prxPtr.writeVarInt64(diff)
 			lastPosition = position
 			i = i + 1
 		}
 	}
 
 	if frqPtr != nil {
-		frqPtr.Flush()
+		frqPtr.flush()
 	}
 	if prxPtr != nil {
-		prxPtr.Flush()
+		prxPtr.flush()
 	}
 
 	if tw != nil {
-		tw.Close()
+		tw.close()
 	}
 	return nil
 }
@@ -220,7 +221,7 @@ func (dw *DocumentWriter) writePostings(postings []Posting, segment string) erro
 // write prx
 func (dw *DocumentWriter) writePrx(postings []Posting, segment string) error {
 
-	filePath := path.Join(dw.DirPath, segment+FileSuffix["termPositions"])
+	filePath := path.Join(dw.dirPath, segment+FileSuffix["termPositions"])
 	fPtr, err := os.Create(filePath)
 	if err != nil {
 		return err
@@ -228,9 +229,9 @@ func (dw *DocumentWriter) writePrx(postings []Posting, segment string) error {
 
 	for _, posting := range postings {
 		lastPosition := int64(0)
-		positions := posting.Positions
+		positions := posting.positions
 		i := int64(0)
-		for i < posting.Freq {
+		for i < posting.freq {
 			position := positions[i]
 			diff := position - lastPosition
 			b, _ := Int64ToByte(diff)
@@ -250,20 +251,20 @@ func (dw *DocumentWriter) writeTis(postings []Posting, segment string) error {
 // add field norms
 func (dw *DocumentWriter) addFieldNorms(segment string, doc Document) error {
 	for _, field := range doc.Fields {
-		if field.IsIndexed {
-			fieldNumber, err := dw.FieldInfos.GetNumber(field.Name)
+		if field.isIndexed {
+			fieldNumber, err := dw.fieldInfos.getNumber(field.name)
 			if err != nil {
 				return err
 			}
-			filePath := path.Join(dw.DirPath, segment+FileSuffix["norms"]+strconv.FormatInt(fieldNumber, 10))
+			filePath := path.Join(dw.dirPath, segment+FileSuffix["norms"]+strconv.FormatInt(fieldNumber, 10))
 			nPtr, err := CreateFile(filePath, false, false)
 			if err != nil {
 				return err
 			}
 
-			n := SimilarityNorm(dw.FieldLengths[fieldNumber])
-			nPtr.WriteByte(n)
-			nPtr.Flush()
+			n := SimilarityNorm(dw.fieldLengths[fieldNumber])
+			nPtr.writeByte(n)
+			nPtr.flush()
 		}
 	}
 	return nil

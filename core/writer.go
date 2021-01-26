@@ -19,10 +19,10 @@ then the optimize method should be called before the index is closed.
 
 // Writer index writer
 type Writer struct {
-	Directory    *File        // where this index resides
-	Analyzer     Analyzer     // how to analyze text
-	SegInfos     SegmentInfos // the segments
-	RAMDirectory *File        // for temp segs
+	dir      *File         // where this index resides
+	analyzer Analyzer      // how to analyze text
+	segInfos *SegmentInfos // the segments
+	ramDir   *File         // for temp segs
 }
 
 var (
@@ -49,8 +49,6 @@ var (
 
 	// MaxMergeDocs max merge docs
 	MaxMergeDocs int64 = math.MaxInt64
-
-	infoStream string
 )
 
 // Init init writer
@@ -60,14 +58,13 @@ func (w *Writer) Init(Dirpath string, analyzer Analyzer, create bool) error {
 		return err
 	}
 
-	w.Directory = fPtr
-	w.Analyzer = analyzer
+	w.dir = fPtr
+	w.analyzer = analyzer
 
-	segs := SegmentInfos{
-		Counter:  0,
-		SegInfos: []SegmentInfo{},
-	}
-	w.SegInfos = segs
+	segsPtr := new(SegmentInfos)
+	segsPtr.empty()
+
+	w.segInfos = segsPtr
 
 	tempDir := "/Users/yz/work/github/gsearch/test/"
 	tPtr, err := CreateTempFile(tempDir, "pre", true)
@@ -75,10 +72,10 @@ func (w *Writer) Init(Dirpath string, analyzer Analyzer, create bool) error {
 		return err
 	}
 
-	w.RAMDirectory = tPtr
+	w.ramDir = tPtr
 
 	if create {
-		w.SegInfos.Write(fPtr)
+		w.segInfos.write(fPtr)
 	}
 	return nil
 
@@ -88,63 +85,66 @@ func (w *Writer) Init(Dirpath string, analyzer Analyzer, create bool) error {
 func (w *Writer) AddDocument(doc Document) error {
 
 	dw := new(DocumentWriter)
-	dw.Init(w.RAMDirectory.FilePath, w.Analyzer, int64(1000))
-	segment := w.NewSegName()
+	dw.Init(w.ramDir.filePath, w.analyzer, MaxFieldLength)
+	segment := w.newSegName()
 	dw.AddDocument(segment, doc)
 
 	seg := SegmentInfo{
-		Name:     segment,
-		DocCount: 1,
-		Dirpath:  w.RAMDirectory.FilePath,
+		name:     segment,
+		docCount: 1,
+		dirPath:  w.ramDir.filePath,
 	}
 
-	w.SegInfos.AddElement(seg)
+	w.segInfos.add(seg)
 
-	w.MaybeMergeSegs()
+	w.maybeMergeSegs()
+
 	return nil
 }
 
-// NewSegName new segment name
-func (w *Writer) NewSegName() string {
-	nCounter := w.SegInfos.Counter + 1
+// newSegName new segment name
+func (w *Writer) newSegName() string {
+	nCounter := w.segInfos.counter + 1
 	return "_" + strconv.FormatInt(nCounter, 10)
 }
 
 // Close close
 func (w *Writer) Close() error {
-	w.FlushRAMSegs()
+	w.flushRAMSegs()
 	return nil
 
 }
 
 // FlushRAMSegs flush ram segments
-func (w *Writer) FlushRAMSegs() error {
+func (w *Writer) flushRAMSegs() error {
 	minSegment := int64(0)
-	w.MergeSegs(minSegment)
+	w.mergeSegs(minSegment)
 	return nil
 }
 
 // MaybeMergeSegs merge segs
-func (w *Writer) MaybeMergeSegs() error {
+func (w *Writer) maybeMergeSegs() error {
 
-	targetMergeDocs := MergeFactor
+	targetMergeDocs := MergeFactor // 10
 
 	for targetMergeDocs <= MaxMergeDocs {
 
-		minSegment := int64(len(w.SegInfos.SegInfos))
+		minSegment := int64(len(w.segInfos.segInfos))
 		mergeDocs := int64(0)
 
+		minSegment = minSegment - 1 // minSegment use as index
+
 		for minSegment >= 0 {
-			si, _ := w.SegInfos.Info(minSegment)
-			if si.DocCount >= targetMergeDocs {
+			si := w.segInfos.segInfos[minSegment]
+			if si.docCount >= targetMergeDocs {
 				break
 			}
-			mergeDocs = mergeDocs + si.DocCount
+			mergeDocs = mergeDocs + si.docCount
 			minSegment = minSegment - 1
 		}
 
 		if mergeDocs >= targetMergeDocs { // found a merge to do
-			w.MergeSegs(minSegment + 1)
+			w.mergeSegs(minSegment + 1) // -1 + 1 = 0
 		} else {
 			break
 		}
@@ -160,46 +160,47 @@ func (w *Writer) MaybeMergeSegs() error {
 // Pops segments off of segmentInfos stack down to minSegment, merges them,
 // and pushes the merged index onto the top of the segmentInfos stack.
 
-// MergeSegs merge segments
-func (w *Writer) MergeSegs(minSegment int64) error {
-	mergedName := w.NewSegName()
+// mergeSegs merge segments
+func (w *Writer) mergeSegs(minSegment int64) error {
+
+	mergedName := w.newSegName()
 	mergedDocCount := int64(0)
-	// if infoStream != "" {
-	// 	fmt.Println("merging segments")
-	// }
+
 	merger := SegmentMerger{
-		DirPath: w.Directory.FilePath,
-		Name:    mergedName,
-		Readers: []*SegmentReader{},
+		dirPath: w.dir.filePath,
+		name:    mergedName,
+		readers: []*SegmentReader{},
 	}
+
 	segsToDelete := []*SegmentReader{}
-	for _, si := range w.SegInfos.SegInfos {
+
+	for _, si := range w.segInfos.segInfos {
 
 		reader := new(SegmentReader)
-		reader.Init(si)
-		merger.Add(reader)
+		reader.init(si)
+		merger.add(reader)
 
 		segsToDelete = append(segsToDelete, reader)
 
-		mergedDocCount = mergedDocCount + si.DocCount
+		mergedDocCount = mergedDocCount + si.docCount
 
 	}
 
-	// merger.Merge()
+	merger.merge()
 
 	// w.SegInfos; // pop old infos & add new
 	seg := SegmentInfo{
-		Name:     mergedName,
-		DocCount: mergedDocCount,
-		Dirpath:  w.Directory.FilePath,
+		name:     mergedName,
+		docCount: mergedDocCount,
+		dirPath:  w.dir.filePath,
 	}
 	segs := SegmentInfos{
-		Counter:  1,
-		SegInfos: []SegmentInfo{seg},
+		counter:  1,
+		segInfos: []SegmentInfo{seg},
 	}
-	w.SegInfos = segs
+	w.segInfos = &segs
 
-	w.SegInfos.Write(w.Directory)
+	w.segInfos.write(w.dir)
 
 	return nil
 }

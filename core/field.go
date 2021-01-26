@@ -17,24 +17,24 @@ so that they may be returned with hits on the document.
 
 // Field field
 type Field struct {
-	Name        string
-	Value       string
-	IsStored    bool
-	IsIndexed   bool
-	IsTokenized bool
+	name        string
+	value       string
+	isStored    bool
+	isIndexed   bool
+	isTokenized bool
 }
 
 // FieldInfo field info
 type FieldInfo struct {
-	Name      string
-	IsIndexed bool
-	Number    int64
+	name      string
+	isIndexed bool
+	number    int64
 }
 
 // FieldInfos field infos
 type FieldInfos struct {
-	ByNumber []FieldInfo // has order
-	ByName   map[string]FieldInfo
+	byNumber []FieldInfo // has order
+	byName   map[string]FieldInfo
 }
 
 /*
@@ -50,89 +50,110 @@ but also things like dates, email addresses, urls, etc.
 
 // Term term
 type Term struct {
-	Field string
-	Text  string
+	field string
+	text  string
 }
 
 // TermInfo term info
 type TermInfo struct {
-	DocFrq int64
-	FrqPtr int64
-	PrxPtr int64
+	docFrq int64
+	frqPtr int64
+	prxPtr int64
 }
 
 // Posting posting
 // info about a Term in a doc
 type Posting struct {
-	Term      Term    // the Term
-	Freq      int64   // its frequency in doc
-	Positions []int64 // positions it occurs at
+	term      Term    // the Term
+	freq      int64   // its frequency in doc
+	positions []int64 // positions it occurs at
 }
 
 // Keyword keyword type field
 func Keyword(name string, value string) (Field, error) {
 	f := Field{
-		Name:        name,
-		Value:       value,
-		IsStored:    true,
-		IsIndexed:   true,
-		IsTokenized: false,
+		name:        name,
+		value:       value,
+		isStored:    true,
+		isIndexed:   true,
+		isTokenized: false,
 	}
 	return f, nil
 }
 
+// ================================FieldInfo=======================================
+
+// isIndexByte get field info index info
+func (f *FieldInfo) isIndexByte() byte {
+	var b byte
+	b = 0
+	if f.isIndexed {
+		b = 1
+	}
+	return b
+}
+
+// ================================FieldInfos=======================================
+
+// Empty empty byname, bynumber
+func (f *FieldInfos) empty() error {
+	f.byName = map[string]FieldInfo{}
+	f.byNumber = []FieldInfo{}
+	return nil
+}
+
 // Init init field infos
-func (f *FieldInfos) Init() error {
-	f.AddField("", false)
+func (f *FieldInfos) init() error {
+	f.addField("", false)
 	return nil
 }
 
 // AddField add field
-func (f *FieldInfos) AddField(name string, isIndex bool) error {
-	_, found := f.ByName[name]
+func (f *FieldInfos) addField(name string, isIndex bool) error {
+	_, found := f.byName[name]
 	if !found {
 		fieldInfo := FieldInfo{
-			Name:      name,
-			IsIndexed: isIndex,
-			Number:    int64(len(f.ByNumber)),
+			name:      name,
+			isIndexed: isIndex,
+			number:    int64(len(f.byNumber)),
 		}
-		f.ByNumber = append(f.ByNumber, fieldInfo)
-		f.ByName[name] = fieldInfo
+		f.byNumber = append(f.byNumber, fieldInfo)
+		f.byName[name] = fieldInfo
 	}
 	return nil
 }
 
 // AddFields add fields
-func (f *FieldInfos) AddFields(fs FieldInfos) error {
-	for _, fi := range fs.ByNumber {
-		f.AddField(fi.Name, fi.IsIndexed)
+func (f *FieldInfos) addFields(fs *FieldInfos) error {
+	for _, fi := range fs.byNumber {
+		f.addField(fi.name, fi.isIndexed)
 	}
 	return nil
 }
 
 // AddDoc add doc
-func (f *FieldInfos) AddDoc(doc Document) error {
+func (f *FieldInfos) addDoc(doc Document) error {
 	fields := doc.Fields
 	for _, field := range fields {
-		fieldName := field.Name
-		if _, found := f.ByName[fieldName]; !found { // not in byName
+		fieldName := field.name
+		if _, found := f.byName[fieldName]; !found { // not in byName
 			fi := FieldInfo{
-				Name:      fieldName,
-				IsIndexed: field.IsIndexed,
-				Number:    int64(len(f.ByNumber)),
+				name:      fieldName,
+				isIndexed: field.isIndexed,
+				number:    int64(len(f.byNumber)),
 			}
-			f.ByNumber = append(f.ByNumber, fi)
-			f.ByName[fieldName] = fi
+			f.byNumber = append(f.byNumber, fi)
+			f.byName[fieldName] = fi
 		}
 	}
 	return nil
 }
 
 // Write write
-func (f *FieldInfos) Write(filePath string) error {
+func (f *FieldInfos) write(filePath string) error {
 	var (
-		err  error
 		fPtr *File
+		err  error
 	)
 	fPtr, err = CreateFile(filePath, false, false)
 	if err != nil {
@@ -140,49 +161,46 @@ func (f *FieldInfos) Write(filePath string) error {
 	}
 
 	// (1) write fields size
-	err = fPtr.WriteVarInt64(int64(len(f.ByNumber)))
+	err = fPtr.writeVarInt(len(f.byNumber))
 	if err != nil {
 		return err
 	}
-	for _, fi := range f.ByNumber {
+	for _, fi := range f.byNumber {
+
 		// (2) write field name
-		err = fPtr.WriteString(fi.Name)
+		err = fPtr.writeString(fi.name)
 		if err != nil {
 			return err
 		}
-		var isIndexed byte
-		isIndexed = 0
-		if fi.IsIndexed {
-			isIndexed = 1
-		}
+
 		// (3) write isIndex info
-		fPtr.WriteByte(isIndexed)
+		fPtr.writeByte(fi.isIndexByte())
 	}
 	return nil
 }
 
 // GetNumber get number
-func (f *FieldInfos) GetNumber(fieldName string) (int64, error) {
-	fi, found := f.ByName[fieldName]
+func (f *FieldInfos) getNumber(fieldName string) (int64, error) {
+	fi, found := f.byName[fieldName]
 	if found {
-		return fi.Number, nil
+		return fi.number, nil
 	}
 	return int64(-1), fmt.Errorf("not found field")
 }
 
 // Init termInfo init
 func (ti *TermInfo) Init(docFrq, fp, pp int64) error {
-	ti.DocFrq = docFrq
-	ti.FrqPtr = fp
-	ti.PrxPtr = pp
+	ti.docFrq = docFrq
+	ti.frqPtr = fp
+	ti.prxPtr = pp
 	return nil
 }
 
 // Compare term compare
-func (t *Term) Compare(d Term) int {
-	fc := strings.Compare(t.Field, d.Field)
+func (t *Term) compare(d Term) int {
+	fc := strings.Compare(t.field, d.field)
 	if fc == 0 {
-		return strings.Compare(t.Text, d.Text)
+		return strings.Compare(t.text, d.text)
 	}
 	return fc
 }

@@ -8,15 +8,15 @@ import (
 
 // File file overwrite os.File
 type File struct {
-	FilePath string
-	File     *os.File
-	IsDir    bool
+	filePath string
+	file     *os.File
+	isDir    bool
 }
 
 // FSDirectory fs directory
 type FSDirectory struct {
-	DirPath string
-	Dir     *File
+	dirPath string
+	dir     *File
 }
 
 // CreateTempFile temp file
@@ -37,9 +37,9 @@ func CreateTempFile(filePath string, prefix string, isDir bool) (*File, error) {
 			return nil, err
 		}
 		f = File{
-			FilePath: fPath,
-			File:     fPtr,
-			IsDir:    true,
+			filePath: fPath,
+			file:     fPtr,
+			isDir:    true,
 		}
 
 	}
@@ -63,27 +63,27 @@ func CreateFile(filePath string, isDir bool, isCreate bool) (*File, error) {
 	}
 
 	f := File{
-		FilePath: filePath,
-		File:     fPtr,
-		IsDir:    isDir,
+		filePath: filePath,
+		file:     fPtr,
+		isDir:    isDir,
 	}
 	return &f, nil
 }
 
 // Rename rename file
-func (f *File) Rename(filePath string) error {
+func (f *File) rename(filePath string) error {
 
-	err := os.Rename(f.FilePath, filePath)
+	err := os.Rename(f.filePath, filePath)
 	if err != nil {
 		return err
 	}
-	f.FilePath = filePath
+	f.filePath = filePath
 	return nil
 }
 
 // Flush flush file to disk
-func (f *File) Flush() error {
-	err := f.File.Sync()
+func (f *File) flush() error {
+	err := f.file.Sync()
 	if err != nil {
 		return err
 	}
@@ -91,12 +91,12 @@ func (f *File) Flush() error {
 }
 
 // GetSize get size
-func (f *File) GetSize() (int64, error) {
+func (f *File) getSize() (int64, error) {
 	var (
 		size int64
 		err  error
 	)
-	fileInfo, err := os.Stat(f.FilePath)
+	fileInfo, err := os.Stat(f.filePath)
 	if err != nil {
 		return size, err
 	}
@@ -116,12 +116,12 @@ func (f *File) GetSize() (int64, error) {
 // 	}
 // 	return nil
 // }
-func (f *File) WriteInt64(n int64) error {
-	err := f.WriteInt(int(n >> 32))
+func (f *File) writeInt64(n int64) error {
+	err := f.writeInt(int(n >> 32))
 	if err != nil {
 		return err
 	}
-	err = f.WriteInt(int(n))
+	err = f.writeInt(int(n))
 	if err != nil {
 		return err
 	}
@@ -129,46 +129,46 @@ func (f *File) WriteInt64(n int64) error {
 }
 
 // WriteInt write int
-func (f *File) WriteInt(n int) error {
-	f.WriteByte(byte(n >> 24))
-	f.WriteByte(byte(n >> 16))
-	f.WriteByte(byte(n >> 8))
-	f.WriteByte(byte(n))
+func (f *File) writeInt(n int) error {
+	f.writeByte(byte(n >> 24))
+	f.writeByte(byte(n >> 16))
+	f.writeByte(byte(n >> 8))
+	f.writeByte(byte(n))
 	return nil
 }
 
 // WriteVarInt64 write var int64
-func (f *File) WriteVarInt64(n int64) error {
+func (f *File) writeVarInt64(n int64) error {
 	for (n & ^0x7F) != 0 {
 		s1 := byte((n & 0x7f) | 0x80)
-		f.WriteByte(s1)
+		f.writeByte(s1)
 		n >>= 7
 	}
 	s2 := byte(n)
-	f.WriteByte(s2)
+	f.writeByte(s2)
 	return nil
 }
 
 // WriteVarInt write var int
-func (f *File) WriteVarInt(n int) error {
+func (f *File) writeVarInt(n int) error {
 	for (n & ^0x7F) != 0 {
 		s1 := byte((n & 0x7f) | 0x80)
-		f.WriteByte(s1)
+		f.writeByte(s1)
 		n >>= 7
 	}
 	s2 := byte(n)
-	f.WriteByte(s2)
+	f.writeByte(s2)
 	return nil
 }
 
 // ReadVarInt64 read
-func (f *File) ReadVarInt64() (int64, error) {
+func (f *File) readVarInt64() (int64, error) {
 	var (
 		i, shift int64
 		b        byte
 		err      error
 	)
-	b, err = f.ReadByte()
+	b, err = f.readByte()
 
 	if err != nil {
 		return i, err
@@ -179,7 +179,7 @@ func (f *File) ReadVarInt64() (int64, error) {
 	shift = 7
 
 	for int64(b)&0x80 != 0 {
-		b, err = f.ReadByte()
+		b, err = f.readByte()
 		i = i | (int64(b)&0x7F)<<shift
 		shift = shift + 7
 	}
@@ -187,9 +187,30 @@ func (f *File) ReadVarInt64() (int64, error) {
 	return i, nil
 }
 
+// readVarInt read
+func (f *File) readVarInt() (int, error) {
+	var (
+		b     byte
+		i     int
+		shift int
+	)
+
+	b, _ = f.readByte()
+
+	shift = 7
+
+	i = int(b & 0x7F)
+	for (b & 0x80) != 0 {
+		b, _ = f.readByte()
+		i = i | int((b&0x7F)<<shift)
+		shift += 7
+	}
+	return i, nil
+}
+
 // WriteChars write chars
-func (f *File) WriteChars(s string) error {
-	_, err := f.File.WriteString(s)
+func (f *File) writeChars(s string) error {
+	_, err := f.file.WriteString(s)
 	if err != nil {
 		return err
 	}
@@ -197,16 +218,16 @@ func (f *File) WriteChars(s string) error {
 }
 
 // WriteString write string
-func (f *File) WriteString(s string) error {
+func (f *File) writeString(s string) error {
 	var (
 		err error
 	)
 	l := int64(len(s))
-	err = f.WriteVarInt64(l) // (1) 写入字符串长度
+	err = f.writeVarInt64(l) // (1) 写入字符串长度
 	if err != nil {
 		return err
 	}
-	_, err = f.File.WriteString(s) // (2) 写入字符串
+	_, err = f.file.WriteString(s) // (2) 写入字符串
 	if err != nil {
 		return err
 	}
@@ -214,12 +235,12 @@ func (f *File) WriteString(s string) error {
 }
 
 // ReadString read string
-func (f *File) ReadString() (string, error) {
+func (f *File) readString() (string, error) {
 	var (
 		n   int64
 		err error
 	)
-	n, err = f.ReadVarInt64() // 先读取字符串的长度
+	n, err = f.readVarInt64() // 先读取字符串的长度
 	if err != nil {
 		return "", err
 	}
@@ -227,7 +248,7 @@ func (f *File) ReadString() (string, error) {
 		n = 1 // 如果字符串长度为0，表示字符串为"", 需要读取1个字节
 	}
 	b := make([]byte, n)
-	_, err = f.File.Read(b)
+	_, err = f.file.Read(b)
 	if err != nil {
 		return "", err
 	}
@@ -235,11 +256,11 @@ func (f *File) ReadString() (string, error) {
 }
 
 // WriteByte write string
-func (f *File) WriteByte(b byte) error {
+func (f *File) writeByte(b byte) error {
 	var (
 		err error
 	)
-	_, err = f.File.Write([]byte{b})
+	_, err = f.file.Write([]byte{b})
 	if err != nil {
 		return err
 	}
@@ -247,12 +268,12 @@ func (f *File) WriteByte(b byte) error {
 }
 
 // ReadByte read byte
-func (f *File) ReadByte() (byte, error) {
+func (f *File) readByte() (byte, error) {
 	var (
 		err error
 	)
 	b := make([]byte, 1)
-	_, err = f.File.Read(b)
+	_, err = f.file.Read(b)
 	if err != nil {
 		return 0, err
 	}
@@ -260,8 +281,8 @@ func (f *File) ReadByte() (byte, error) {
 }
 
 // SeekFrom seek file
-func (f *File) SeekFrom(n int64) error {
-	_, err := f.File.Seek(n, 0)
+func (f *File) seekFrom(n int64) error {
+	_, err := f.file.Seek(n, 0)
 	if err != nil {
 		return err
 	}
@@ -269,7 +290,7 @@ func (f *File) SeekFrom(n int64) error {
 }
 
 // Init check file exist and is a directory
-func (fs *FSDirectory) Init(dirPath string) error {
+func (fs *FSDirectory) init(dirPath string) error {
 
 	info, err := os.Stat(dirPath)
 
@@ -284,7 +305,7 @@ func (fs *FSDirectory) Init(dirPath string) error {
 	if err != nil {
 		return err
 	}
-	fs.DirPath = dirPath
-	fs.Dir = f
+	fs.dirPath = dirPath
+	fs.dir = f
 	return nil
 }
