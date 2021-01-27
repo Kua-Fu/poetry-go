@@ -179,6 +179,15 @@ func (f *FieldInfos) write(filePath string) error {
 	return nil
 }
 
+// getFieldInfo get field info
+func (f *FieldInfos) getFieldInfo(i int) (*FieldInfo, error) {
+	if len(f.byNumber) <= i {
+		return nil, fmt.Errorf("no such field info")
+	}
+	fi := f.byNumber[i]
+	return &fi, nil
+}
+
 // GetNumber get number
 func (f *FieldInfos) getNumber(fieldName string) (int64, error) {
 	fi, found := f.byName[fieldName]

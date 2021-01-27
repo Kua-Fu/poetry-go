@@ -105,17 +105,6 @@ func (f *File) getSize() (int64, error) {
 }
 
 // WriteInt64 write int64 to file
-// func (f *File) WriteInt64(n int64) error {
-// 	b, err := Int64ToByte(n)
-// 	if err != nil {
-// 		return err
-// 	}
-// 	_, err = f.File.Write(b)
-// 	if err != nil {
-// 		return err
-// 	}
-// 	return nil
-// }
 func (f *File) writeInt64(n int64) error {
 	err := f.writeInt(int(n >> 32))
 	if err != nil {
@@ -128,6 +117,31 @@ func (f *File) writeInt64(n int64) error {
 	return nil
 }
 
+// readInt64 read int64
+func (f *File) readInt64() (int64, error) {
+	var (
+		ih, il int
+		ii     int64
+		err    error
+	)
+	ih, err = f.readInt()
+	if err != nil {
+		return ii, err
+	}
+
+	ih = int(int64(ih) << 32)
+
+	il, err = f.readInt()
+	if err != nil {
+		return ii, err
+	}
+
+	il = il & 0xFFFFFFFF
+
+	ii = int64(ih | il)
+	return ii, nil
+}
+
 // WriteInt write int
 func (f *File) writeInt(n int) error {
 	f.writeByte(byte(n >> 24))
@@ -135,6 +149,41 @@ func (f *File) writeInt(n int) error {
 	f.writeByte(byte(n >> 8))
 	f.writeByte(byte(n))
 	return nil
+}
+
+// readint read int
+func (f *File) readInt() (int, error) {
+	var (
+		i   int
+		b   byte
+		err error
+	)
+	b, err = f.readByte()
+	if err != nil {
+		return i, err
+	}
+	b1 := b & 0xFF << 24
+
+	b, err = f.readByte()
+	if err != nil {
+		return i, err
+	}
+	b2 := b & 0xFF << 16
+
+	b, err = f.readByte()
+	if err != nil {
+		return i, err
+	}
+	b3 := b & 0xFF << 8
+
+	b, err = f.readByte()
+	if err != nil {
+		return i, err
+	}
+	b4 := b & 0xFF
+
+	i = int(b1 | b2 | b3 | b4)
+	return i, nil
 }
 
 // WriteVarInt64 write var int64
@@ -222,8 +271,8 @@ func (f *File) writeString(s string) error {
 	var (
 		err error
 	)
-	l := int64(len(s))
-	err = f.writeVarInt64(l) // (1) 写入字符串长度
+	l := len(s)
+	err = f.writeVarInt(l) // (1) 写入字符串长度
 	if err != nil {
 		return err
 	}
@@ -237,16 +286,14 @@ func (f *File) writeString(s string) error {
 // ReadString read string
 func (f *File) readString() (string, error) {
 	var (
-		n   int64
+		n   int
 		err error
 	)
-	n, err = f.readVarInt64() // 先读取字符串的长度
+	n, err = f.readVarInt() // read string length
 	if err != nil {
 		return "", err
 	}
-	if n < 1 {
-		n = 1 // 如果字符串长度为0，表示字符串为"", 需要读取1个字节
-	}
+
 	b := make([]byte, n)
 	_, err = f.file.Read(b)
 	if err != nil {

@@ -19,15 +19,30 @@ type SegmentInfos struct {
 
 // SegmentReader segment reader
 type SegmentReader struct {
-	seg        *SegmentInfo // segmentInfo Ptr
-	fieldInfos *FieldInfos  // fieldInfos
+	seg          *SegmentInfo  // segmentInfo Ptr
+	fieldInfos   *FieldInfos   // fieldInfos
+	fieldsReader *FieldsReader // fields reader
+	termsReader  *TermsReader  // terms reader
 }
 
 // SegmentMerger segment merger
 type SegmentMerger struct {
-	dirPath string           // segment dir
-	name    string           // segment name
-	readers []*SegmentReader // segment reader
+	dirPath    string           // segment dir
+	name       string           // segment name
+	readers    []*SegmentReader // segment reader
+	fieldInfos *FieldInfos
+}
+
+// SegmentMergeInfo segment merge info
+type SegmentMergeInfo struct {
+	term   *Term
+	base   int64
+	reader *SegmentReader
+	// postings
+}
+
+// SegmentMergeQueue segment merge queue
+type SegmentMergeQueue struct {
 }
 
 // ================================SegmentInfos=======================================
@@ -75,6 +90,11 @@ func (s *SegmentInfos) write(fPtr *File) error {
 
 // ================================SegmentReader=======================================
 
+// max doc
+func (sr *SegmentReader) maxDoc() int64 {
+	return sr.fieldsReader.size
+}
+
 // Init segment reader init
 func (sr *SegmentReader) init(si SegmentInfo) error {
 
@@ -88,6 +108,15 @@ func (sr *SegmentReader) init(si SegmentInfo) error {
 	// deserialize fnm info
 	sr.initFieldNames()
 
+	// fields reader
+	fr := new(FieldsReader)
+	fr.init(si.dirPath, si.name, sr.fieldInfos)
+	sr.fieldsReader = fr
+
+	// terms info
+	tr := new(TermsReader)
+	tr.init(si.dirPath, si.name, sr.fieldInfos)
+
 	return nil
 }
 
@@ -95,8 +124,9 @@ func (sr *SegmentReader) init(si SegmentInfo) error {
 func (sr *SegmentReader) initFieldNames() error {
 
 	var (
-		err      error
-		filepath string
+		err       error
+		filepath  string
+		isIndexed bool
 	)
 
 	filepath = path.Join(sr.seg.dirPath, sr.seg.name+FileSuffix["fieldName"])
@@ -116,9 +146,14 @@ func (sr *SegmentReader) initFieldNames() error {
 			return err
 		}
 
+		b, err := f.readByte()
+		if b == 1 {
+			isIndexed = true
+		}
+
 		fi := FieldInfo{
 			name:      s,
-			isIndexed: true,
+			isIndexed: isIndexed,
 			number:    int64(len(sr.fieldInfos.byNumber)),
 		}
 
@@ -144,9 +179,9 @@ func (sm *SegmentMerger) merge() error {
 
 	sm.mergeFieldNames() // (1) merge field names
 
-	// sm.mergeFieldValues() // (2) merge field values
+	sm.mergeFieldValues() // (2) merge field values
 
-	// sm.MergeNorms()
+	sm.mergeFieldPostings() // (3) merge field postings
 
 	return nil
 }
@@ -161,6 +196,8 @@ func (sm *SegmentMerger) mergeFieldNames() error {
 		fieldsPtr.addFields(r.fieldInfos)
 	}
 
+	sm.fieldInfos = fieldsPtr // init fieldinfos
+
 	filePath := path.Join(
 		sm.dirPath,
 		sm.name+FileSuffix["fieldName"],
@@ -171,13 +208,31 @@ func (sm *SegmentMerger) mergeFieldNames() error {
 	return nil
 }
 
-// mergeFieldValues merge field values
+// MergeFieldValues merge field values
 func (sm *SegmentMerger) mergeFieldValues() error {
+	fw := FieldsWriter{}
+	fw.init(sm.dirPath, sm.name, sm.fieldInfos)
+	for _, r := range sm.readers {
+		maxDoc := r.maxDoc()
+		i := int64(0)
+		for i < maxDoc {
+			doc, _ := r.fieldsReader.doc(i)
+			fw.addDocument(doc)
+			i = i + 1
+		}
+	}
+	fw.Close()
 	return nil
 }
 
-// MergeFieldValues merge field values
-func (sm *SegmentMerger) MergeFieldValues() error {
+// mergeFieldPostings merge field postings
+func (sm *SegmentMerger) mergeFieldPostings() error {
+
+	// queue := SegmentMergeQueue{}
+
+	// for _, r := range sm.readers {
+
+	// }
 
 	return nil
 }

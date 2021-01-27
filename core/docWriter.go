@@ -62,7 +62,7 @@ func (dw *DocumentWriter) addFieldNames(segment string, doc Document) error {
 func (dw *DocumentWriter) addFieldValues(segment string, doc Document) error {
 	var err error
 	fw := FieldsWriter{}
-	fw.Init(dw.dirPath, segment, dw.fieldInfos)
+	fw.init(dw.dirPath, segment, dw.fieldInfos)
 	err = fw.addDocument(doc)
 	if err != nil {
 		return err

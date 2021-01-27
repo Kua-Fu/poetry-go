@@ -31,7 +31,7 @@ type NormsWriter struct {
 // ================================FieldsWriter=======================================
 
 // Init init fieldsWriter
-func (fw *FieldsWriter) Init(dirPath string, segment string, fn *FieldInfos) error {
+func (fw *FieldsWriter) init(dirPath string, segment string, fn *FieldInfos) error {
 	fw.fieldInfos = fn
 
 	filePath := path.Join(dirPath, segment+FileSuffix["fieldData"])
