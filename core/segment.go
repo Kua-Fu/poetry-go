@@ -1,7 +1,9 @@
 package core
 
 import (
+	"fmt"
 	"path"
+	"strconv"
 )
 
 // SegmentInfo  segment info
@@ -17,12 +19,19 @@ type SegmentInfos struct {
 	segInfos []SegmentInfo
 }
 
+// Norm norm
+type Norm struct {
+	fPtr  *File
+	bytes []byte
+}
+
 // SegmentReader segment reader
 type SegmentReader struct {
-	seg          *SegmentInfo  // segmentInfo Ptr
-	fieldInfos   *FieldInfos   // fieldInfos
-	fieldsReader *FieldsReader // fields reader
-	termsReader  *TermsReader  // terms reader
+	seg          *SegmentInfo      // segmentInfo Ptr
+	fieldInfos   *FieldInfos       // fieldInfos
+	fieldsReader *FieldsReader     // fields reader
+	termsReader  *TermsReader      // terms reader
+	norms        *map[string]*Norm // norms
 }
 
 // SegmentMerger segment merger
@@ -31,19 +40,22 @@ type SegmentMerger struct {
 	name       string           // segment name
 	readers    []*SegmentReader // segment reader
 	fieldInfos *FieldInfos
+	tw         *TermsWriter
 }
 
 // SegmentMergeInfo segment merge info
 type SegmentMergeInfo struct {
-	term   *Term
-	base   int64
-	reader *SegmentReader
+	index    int64
+	term     *Term
+	termInfo *TermInfo
+	base     int64
+	reader   *SegmentReader
 	// postings
 }
 
 // SegmentMergeQueue segment merge queue
-type SegmentMergeQueue struct {
-}
+// type SegmentMergeQueue struct {
+// }
 
 // ================================SegmentInfos=======================================
 
@@ -67,7 +79,7 @@ func (s *SegmentInfos) add(segInfo SegmentInfo) error {
 
 // Write create file
 func (s *SegmentInfos) write(fPtr *File) error {
-	filePath := fPtr.filePath + "segments.new"
+	filePath := path.Join(fPtr.filePath, "segments.new")
 
 	sPtr, err := CreateFile(filePath, false, false)
 	if err != nil {
@@ -82,9 +94,18 @@ func (s *SegmentInfos) write(fPtr *File) error {
 		sPtr.writeInt(int(seg.docCount))
 	}
 
-	sPtr.flush()
-	nfilepath := fPtr.filePath + "segments"
+	sPtr.close()
+	nfilepath := path.Join(fPtr.filePath, "segments")
 	sPtr.rename(nfilepath)
+	return nil
+}
+
+// ================================SegmentMergeInfo=======================================
+func (s *SegmentMergeInfo) init(base int64, term *Term, termInfo *TermInfo, reader *SegmentReader) error {
+	s.term = term
+	s.termInfo = termInfo
+	s.base = base
+	s.reader = reader
 	return nil
 }
 
@@ -92,6 +113,11 @@ func (s *SegmentInfos) write(fPtr *File) error {
 
 // max doc
 func (sr *SegmentReader) maxDoc() int64 {
+	return sr.fieldsReader.size
+}
+
+// numDocs
+func (sr *SegmentReader) numDocs() int64 {
 	return sr.fieldsReader.size
 }
 
@@ -116,6 +142,9 @@ func (sr *SegmentReader) init(si SegmentInfo) error {
 	// terms info
 	tr := new(TermsReader)
 	tr.init(si.dirPath, si.name, sr.fieldInfos)
+
+	sr.termsReader = tr
+	sr.openNorms()
 
 	return nil
 }
@@ -166,6 +195,39 @@ func (sr *SegmentReader) initFieldNames() error {
 	return nil
 }
 
+// openNorms open norms
+func (sr *SegmentReader) openNorms() error {
+	sr.norms = &(map[string]*Norm{})
+	for _, fi := range sr.fieldInfos.byNumber {
+		if fi.isIndexed {
+			filepath := path.Join(sr.seg.dirPath, sr.seg.name+FileSuffix["norms"]+strconv.FormatInt(fi.number, 10))
+
+			fPtr, err := CreateFile(filepath, false, true)
+			if err != nil {
+				return err
+			}
+
+			norm := Norm{
+				fPtr:  fPtr,
+				bytes: []byte{},
+			}
+			(*sr.norms)[fi.name] = &norm
+		}
+	}
+	return nil
+}
+
+// normStream norm stream
+func (sr *SegmentReader) normStream(field string) (*File, error) {
+	if norm, ok := (*sr.norms)[field]; ok {
+		fPtr := norm.fPtr // why in lucene is clone inputStream?
+		fPtr.seekFrom(0)
+		return fPtr, nil
+	}
+	return nil, fmt.Errorf("no such norm")
+
+}
+
 // ================================SegmentMerger=======================================
 
 // Add add reader
@@ -182,6 +244,8 @@ func (sm *SegmentMerger) merge() error {
 	sm.mergeFieldValues() // (2) merge field values
 
 	sm.mergeFieldPostings() // (3) merge field postings
+
+	sm.mergeFieldNorms() // (4) merge field norms
 
 	return nil
 }
@@ -227,12 +291,120 @@ func (sm *SegmentMerger) mergeFieldValues() error {
 
 // mergeFieldPostings merge field postings
 func (sm *SegmentMerger) mergeFieldPostings() error {
+	var (
+		filePath string
+	)
 
-	// queue := SegmentMergeQueue{}
+	filePath = path.Join(sm.dirPath, sm.name+FileSuffix["termFrequencies"])
+	frqPtr, err := CreateFile(filePath, false, false)
+	if err != nil {
+		return err
+	}
 
-	// for _, r := range sm.readers {
+	filePath = path.Join(sm.dirPath, sm.name+FileSuffix["termPositions"])
+	prxPtr, err := CreateFile(filePath, false, false)
+	if err != nil {
+		return err
+	}
 
-	// }
+	tw := new(TermsWriter)
+	tw.init(sm.dirPath, sm.name, sm.fieldInfos)
+	sm.tw = tw
 
+	sm.mergeTermInfos(frqPtr, prxPtr)
+
+	// file close
+	tw.close()
+	frqPtr.close()
+	prxPtr.close()
+
+	return nil
+}
+
+// mergeTermInfos merge term infos
+func (sm *SegmentMerger) mergeTermInfos(frqPtr *File, prxPtr *File) error {
+
+	// queue := make(PriorityQueue, len(sm.readers))
+	queue := make(PriorityQueue, 0)
+	base := int64(0)
+	for _, r := range sm.readers {
+		termsPtr, _ := r.termsReader.terms()
+		// add every term
+		for i, term := range termsPtr.terms {
+			smi := new(SegmentMergeInfo)
+			smi.init(base, term, termsPtr.termInfos[i], r)
+			queue.Push(smi)
+		}
+
+		base = base + r.numDocs()
+
+	}
+
+	// reduce
+	match := []*SegmentMergeInfo{}
+
+	for queue.Len() > 0 {
+		matchSize := 0
+		smiPtr, _ := queue.Pop().(*SegmentMergeInfo)
+		match = append(match, smiPtr)
+		matchSize = matchSize + 1
+
+		termPtr := match[0].term
+		top, _ := queue.Top().(*SegmentMergeInfo)
+
+		for top != nil && termPtr.compare(*top.term) == 0 {
+			smiPtr, _ := queue.Pop().(*SegmentMergeInfo)
+			match = append(match, smiPtr)
+			matchSize = matchSize + 1
+			top, _ = queue.Top().(*SegmentMergeInfo)
+		}
+
+		sm.mergeTermInfo(match, matchSize)
+
+		// for _, smiPtr := range match {
+		// 	queue.Push(smiPtr) // restore queue
+		// }
+
+	}
+	return nil
+}
+
+// mergeTermInfo merge every term
+func (sm *SegmentMerger) mergeTermInfo(match []*SegmentMergeInfo, matchSize int) error {
+	for _, smi := range match {
+		term := smi.term
+		termInfo := smi.termInfo
+		sm.tw.addTerm(*term, *termInfo)
+	}
+	return nil
+}
+
+// mergeFieldNorms merge field norms
+func (sm *SegmentMerger) mergeFieldNorms() error {
+
+	for i, fi := range sm.fieldInfos.byNumber {
+		if fi.isIndexed {
+			filePath := path.Join(sm.dirPath, sm.name+FileSuffix["norms"]+strconv.FormatInt(int64(i), 10))
+			nfPtr, err := CreateFile(filePath, false, false)
+			if err != nil {
+				return err
+			}
+			// reader
+			for _, reader := range sm.readers {
+				fPtr, _ := reader.normStream(fi.name)
+				maxDoc := reader.maxDoc()
+				k := 0
+				// write norm
+				for k < int(maxDoc) {
+					b, _ := fPtr.readByte()
+					nfPtr.writeByte(b)
+					k = k + 1
+				}
+				fPtr.close()
+			}
+			// close nfPtr
+			nfPtr.close()
+		}
+	}
 	return nil
 }

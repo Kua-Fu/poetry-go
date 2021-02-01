@@ -2,6 +2,7 @@ package core
 
 import (
 	"math"
+	"path"
 	"strconv"
 )
 
@@ -66,7 +67,7 @@ func (w *Writer) Init(Dirpath string, analyzer Analyzer, create bool) error {
 
 	w.segInfos = segsPtr
 
-	tempDir := "/Users/yz/work/github/gsearch/test/"
+	tempDir := "/tmp"
 	tPtr, err := CreateTempFile(tempDir, "pre", true)
 	if err != nil {
 		return err
@@ -111,6 +112,7 @@ func (w *Writer) newSegName() string {
 // Close close
 func (w *Writer) Close() error {
 	w.flushRAMSegs()
+	w.closeRAMDir()
 	return nil
 
 }
@@ -119,6 +121,12 @@ func (w *Writer) Close() error {
 func (w *Writer) flushRAMSegs() error {
 	minSegment := int64(0)
 	w.mergeSegs(minSegment)
+	return nil
+}
+
+// delete dir
+func (w *Writer) closeRAMDir() error {
+	w.ramDir.removeAll()
 	return nil
 }
 
@@ -172,7 +180,7 @@ func (w *Writer) mergeSegs(minSegment int64) error {
 		readers: []*SegmentReader{},
 	}
 
-	segsToDelete := []*SegmentReader{}
+	segsToDelete := []*SegmentReader{} // segment to delete
 
 	for _, si := range w.segInfos.segInfos {
 
@@ -195,12 +203,64 @@ func (w *Writer) mergeSegs(minSegment int64) error {
 		dirPath:  w.dir.filePath,
 	}
 	segs := SegmentInfos{
-		counter:  1,
+		counter:  2,
 		segInfos: []SegmentInfo{seg},
 	}
 	w.segInfos = &segs
 
-	w.segInfos.write(w.dir)
+	w.segInfos.write(w.dir) // commit before deleting
 
+	w.deleteSegments(segsToDelete) // delete now-unused segments
+
+	return nil
+}
+
+//
+func (w *Writer) deleteSegments(segsToDelete []*SegmentReader) error {
+	// get all files should be deleted
+	deleteFiles, err := w.readDeleteableFiles()
+	if err != nil {
+		return err
+	}
+
+	// get all files can delete, maybe some files can not delete current
+	deleteables, err := w.deleteFiles(deleteFiles)
+	if err != nil {
+		return err
+	}
+
+	w.writeDeleteableFiles(deleteables)
+	return nil
+}
+
+// read delete files
+func (w *Writer) readDeleteableFiles() ([]string, error) {
+	return []string{}, nil
+}
+
+// all delete files
+func (w *Writer) deleteFiles(deleteFiles []string) ([]string, error) {
+
+	return []string{}, nil
+}
+
+// writeDeleteableFiles
+func (w *Writer) writeDeleteableFiles(deleteables []string) error {
+	filePath := path.Join(w.dir.filePath, "deleteable.new")
+
+	dPtr, err := CreateFile(filePath, false, false)
+	if err != nil {
+		return err
+	}
+
+	dPtr.writeInt(len(deleteables))
+
+	for _, fileName := range deleteables {
+		dPtr.writeString(fileName)
+	}
+
+	dPtr.close()
+	nfilepath := path.Join(w.dir.filePath, "deletable")
+	dPtr.rename(nfilepath)
 	return nil
 }

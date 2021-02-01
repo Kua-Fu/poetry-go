@@ -70,6 +70,17 @@ func CreateFile(filePath string, isDir bool, isCreate bool) (*File, error) {
 	return &f, nil
 }
 
+// remove dir
+func (f *File) removeAll() error {
+	err := os.RemoveAll(f.filePath)
+	if err != nil {
+		fmt.Println("--delete err--", err)
+		return err
+	}
+	fmt.Println("--delete dir success--", f.filePath)
+	return nil
+}
+
 // Rename rename file
 func (f *File) rename(filePath string) error {
 
@@ -88,6 +99,15 @@ func (f *File) flush() error {
 		return err
 	}
 	return err
+}
+
+// close close file
+func (f *File) close() error {
+	err := f.file.Close()
+	if err != nil {
+		return err
+	}
+	return nil
 }
 
 // GetSize get size
@@ -260,6 +280,21 @@ func (f *File) readVarInt() (int, error) {
 // WriteChars write chars
 func (f *File) writeChars(s string) error {
 	_, err := f.file.WriteString(s)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+// readChars read chars
+func (f *File) readChars(b []byte, withOff bool, off int64) error {
+	var err error
+	if withOff {
+		_, err = f.file.ReadAt(b, off)
+	} else {
+		_, err = f.file.Read(b)
+	}
+
 	if err != nil {
 		return err
 	}

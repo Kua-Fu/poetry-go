@@ -139,7 +139,7 @@ func (tw *TermsWriter) init(dirPath, segment string, fieldInfos *FieldInfos) err
 	if err != nil {
 		return err
 	}
-	fPtr.writeInt(0)
+	fPtr.writeInt(0) // (1) write int
 
 	other := &TermsWriter{
 		fieldInfos: fieldInfos,

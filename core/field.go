@@ -197,6 +197,15 @@ func (f *FieldInfos) getNumber(fieldName string) (int64, error) {
 	return int64(-1), fmt.Errorf("not found field")
 }
 
+// getFieldName get field name
+func (f *FieldInfos) getFieldName(i int) (string, error) {
+	if len(f.byNumber) <= i {
+		return "", fmt.Errorf("no such field name")
+	}
+	str := f.byNumber[i].name
+	return str, nil
+}
+
 // Init termInfo init
 func (ti *TermInfo) Init(docFrq, fp, pp int64) error {
 	ti.docFrq = docFrq
