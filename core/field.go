@@ -161,20 +161,26 @@ func (f *FieldInfos) write(filePath string) error {
 	}
 
 	// (1) write fields size
-	err = fPtr.writeVarInt(len(f.byNumber))
+	fieldSize := len(f.byNumber)
+	err = fPtr.writeVarInt(fieldSize)
 	if err != nil {
 		return err
 	}
-	for _, fi := range f.byNumber {
 
-		// (2) write field name
-		err = fPtr.writeString(fi.name)
-		if err != nil {
-			return err
+	if fieldSize > 0 { // first input, last output
+		i := 1
+		for i <= fieldSize {
+			fi := f.byNumber[fieldSize-i]
+			// (2) write field name
+			err = fPtr.writeString(fi.name)
+			if err != nil {
+				return err
+			}
+
+			// (3) write isIndex info
+			fPtr.writeByte(fi.isIndexByte())
+			i = i + 1
 		}
-
-		// (3) write isIndex info
-		fPtr.writeByte(fi.isIndexByte())
 	}
 	return nil
 }
