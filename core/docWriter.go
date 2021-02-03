@@ -54,7 +54,7 @@ func (dw *DocumentWriter) addFieldNames(segment string, doc Document) error {
 
 	dw.fieldInfos = fieldsPtr
 	filePath := path.Join(dw.dirPath, segment+FileSuffix["fieldName"])
-	fieldsPtr.write(filePath)
+	fieldsPtr.write(filePath, false)
 	return nil
 }
 

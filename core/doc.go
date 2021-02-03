@@ -14,6 +14,7 @@ func (d *Document) SetBoost(boost float64) error {
 
 // Add add field
 func (d *Document) Add(field Field) error {
-	d.Fields = append(d.Fields, field)
+	// d.Fields = append(d.Fields, field)
+	d.Fields = append([]Field{field}, d.Fields...)
 	return nil
 }
