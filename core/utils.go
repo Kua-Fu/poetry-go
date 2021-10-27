@@ -2,6 +2,7 @@ package core
 
 import (
 	"container/heap"
+	"fmt"
 	"math"
 	"strconv"
 )
@@ -25,6 +26,7 @@ var (
 
 // Int64ToByte int64 to []byte
 func Int64ToByte(i int64) ([]byte, error) {
+	fmt.Println("int64 to byte")
 	return []byte(strconv.FormatInt(i, 2)), nil
 }
 
