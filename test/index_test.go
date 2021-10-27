@@ -1,6 +1,7 @@
 package test
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/Kua-Fu/gsearch/core"
@@ -31,6 +32,7 @@ func TestDoc(t *testing.T) {
 	doc.Add(f1)
 
 	segment := "s1"
+	fmt.Println("--test doc--")
 	writer.AddDocument(segment, *doc)
 
 }
